@@ -60,6 +60,7 @@ const TITLES: string[] = [
   "Ham Apni Sham Ko Jab Nazr-E-Jam Karte Hain",
   "Hae Dil Mein Ishq-e-Nabi Ka Jalwa",
   "Zee Halle Miskin",
+  "Longing",
 ];
 
 function seededDuration(title: string): number {
