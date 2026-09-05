@@ -61,6 +61,7 @@ const TITLES: string[] = [
   "Hae Dil Mein Ishq-e-Nabi Ka Jalwa",
   "Zee Halle Miskin",
   "Longing",
+  "Akhiyan Udeekdiyan",
 ];
 
 function seededDuration(title: string): number {
