@@ -62,6 +62,8 @@ const TITLES: string[] = [
   "Zee Halle Miskin",
   "Longing",
   "Akhiyan Udeekdiyan",
+  "Sanu Ek Pal Chain",
+
 ];
 
 function seededDuration(title: string): number {
