@@ -5,9 +5,10 @@ import { songs, formatTime } from "@/lib/songs";
 import Vinyl from "./Vinyl";
 import SeekBar from "./SeekBar";
 import Transport from "./Transport";
-import SleepTimer from "./SleepTimer";
+import SleepTimer, { type SleepSelection } from "./SleepTimer";
 
 type RepeatMode = "off" | "all" | "one";
+type SleepMode = "off" | "duration" | "end-of-song" | "sunrise";
 
 function ShuffleButton({
   active,
@@ -70,6 +71,16 @@ function RepeatButton({
   );
 }
 
+function msUntilNextSunrise(): number {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(5, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime() - now.getTime();
+}
+
 export default function Player() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [index, setIndex] = useState(0);
@@ -80,12 +91,17 @@ export default function Player() {
   const [shuffle, setShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
 
+  const [sleepMode, setSleepMode] = useState<SleepMode>("off");
+  const [sleepDeadline, setSleepDeadline] = useState<number | null>(null); // epoch ms
+  const [sleepDisplaySec, setSleepDisplaySec] = useState<number | null>(null);
+
   const retryCountRef = useRef(0);
   const songRef = useRef(songs[0]);
   const isPlayingRef = useRef(false);
   const shuffleRef = useRef(false);
   const repeatModeRef = useRef<RepeatMode>("off");
   const indexRef = useRef(0);
+  const sleepModeRef = useRef<SleepMode>("off");
 
   const song = songs[index];
   songRef.current = song;
@@ -93,6 +109,7 @@ export default function Player() {
   shuffleRef.current = shuffle;
   repeatModeRef.current = repeatMode;
   indexRef.current = index;
+  sleepModeRef.current = sleepMode;
 
   const pickRandomIndex = useCallback((excludeIndex: number) => {
     if (songs.length <= 1) return excludeIndex;
@@ -132,6 +149,14 @@ export default function Player() {
     }
   }, [isPlaying]);
 
+  // Handoff from the entry gate: the tap that dismisses it is a genuine
+  // user gesture, so starting playback here is allowed by autoplay policy.
+  useEffect(() => {
+    const onStart = () => setIsPlaying(true);
+    window.addEventListener("mehfil-start", onStart);
+    return () => window.removeEventListener("mehfil-start", onStart);
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -144,6 +169,14 @@ export default function Player() {
     };
 
     const onEnded = () => {
+      // Sleep: end of current song — stop right here.
+      if (sleepModeRef.current === "end-of-song") {
+        setIsPlaying(false);
+        setSleepMode("off");
+        setSleepDeadline(null);
+        return;
+      }
+
       // Repeat one: replay the same track from the top.
       if (repeatModeRef.current === "one") {
         setElapsed(0);
@@ -205,6 +238,26 @@ export default function Player() {
     };
   }, [pickRandomIndex]);
 
+  // Duration / sunrise countdown ticker.
+  useEffect(() => {
+    if (sleepDeadline == null) {
+      setSleepDisplaySec(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.round((sleepDeadline - Date.now()) / 1000));
+      setSleepDisplaySec(remaining);
+      if (remaining <= 0) {
+        setIsPlaying(false);
+        setSleepMode("off");
+        setSleepDeadline(null);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [sleepDeadline]);
+
   const goPrev = useCallback(() => {
     setIndex((i) => (i - 1 + songs.length) % songs.length);
   }, []);
@@ -218,13 +271,31 @@ export default function Player() {
   }, [pickRandomIndex]);
 
   const toggle = useCallback(() => setIsPlaying((p) => !p), []);
-
-  const sleepExpire = useCallback(() => setIsPlaying(false), []);
-
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
-
   const cycleRepeat = useCallback(() => {
     setRepeatMode((m) => (m === "off" ? "all" : m === "all" ? "one" : "off"));
+  }, []);
+
+  const handleSleepSelect = useCallback((selection: SleepSelection) => {
+    if (selection.type === "off") {
+      setSleepMode("off");
+      setSleepDeadline(null);
+      return;
+    }
+    if (selection.type === "duration") {
+      setSleepMode("duration");
+      setSleepDeadline(Date.now() + selection.minutes * 60_000);
+      return;
+    }
+    if (selection.type === "sunrise") {
+      setSleepMode("sunrise");
+      setSleepDeadline(Date.now() + msUntilNextSunrise());
+      return;
+    }
+    if (selection.type === "end-of-song") {
+      setSleepMode("end-of-song");
+      setSleepDeadline(null);
+    }
   }, []);
 
   const seek = useCallback(
@@ -240,6 +311,13 @@ export default function Player() {
   );
 
   const progress = duration > 0 ? elapsed / duration : 0;
+
+  const sleepLabel =
+    sleepMode === "end-of-song"
+      ? "End of song"
+      : sleepDisplaySec != null
+      ? `${Math.floor(sleepDisplaySec / 60)}:${String(sleepDisplaySec % 60).padStart(2, "0")}`
+      : null;
 
   return (
     <div className="pointer-events-auto w-full max-w-xl">
@@ -276,7 +354,11 @@ export default function Player() {
         </div>
 
         <div className="flex flex-col items-end gap-1">
-          <SleepTimer onExpire={sleepExpire} />
+          <SleepTimer
+            active={sleepMode !== "off"}
+            label={sleepLabel}
+            onSelect={handleSleepSelect}
+          />
           <div className="flex items-center gap-0.5">
             <ShuffleButton active={shuffle} onClick={toggleShuffle} />
             <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
@@ -317,7 +399,11 @@ export default function Player() {
         </div>
 
         <div className="flex items-center gap-3">
-          <SleepTimer onExpire={sleepExpire} />
+          <SleepTimer
+            active={sleepMode !== "off"}
+            label={sleepLabel}
+            onSelect={handleSleepSelect}
+          />
           <Transport
             isPlaying={isPlaying}
             onPrev={goPrev}
