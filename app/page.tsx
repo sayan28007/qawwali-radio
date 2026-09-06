@@ -2,14 +2,13 @@ import Clock from "@/components/Clock";
 import ListenerCount from "@/components/ListenerCount";
 import SocialLinks from "@/components/SocialLinks";
 import Player from "@/components/Player";
+import TimeOfDayBackground from "@/components/TimeOfDayBackground";
 
 export default function Home() {
   return (
     <main className="relative flex min-h-dvh flex-1 flex-col items-center justify-between overflow-hidden">
-      {/* 1. Fixed scene, landscape by default, portrait swap in CSS */}
-      <div className="hero-bg fixed inset-0 -z-20">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/10 to-black/55" />
-      </div>
+      {/* 1. Fixed scene — swaps by local time of day, landscape/portrait per orientation */}
+      <TimeOfDayBackground />
 
       {/* 2. Fixed grain */}
       <div className="grain-overlay pointer-events-none fixed inset-0 -z-10" />

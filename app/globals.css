@@ -38,19 +38,34 @@
 }
 
 @layer utilities {
-  /* Fixed hero background: landscape by default, a separately-composed
-     portrait piece swapped in for tall/rotated viewports. */
+  /* ---- Time-of-day hero backgrounds ----
+     Each period has a landscape image by default and swaps to a
+     separately-composed portrait image on tall/rotated viewports,
+     same pattern as the original single hero-bg. Drop files in
+     public/bg/ using the exact names below. */
   .hero-bg {
-    background-image: url("/bg/scene-wide.png");
     background-size: cover;
     background-position: center 38%;
   }
 
+  .hero-bg-sunrise   { background-image: url("/bg/sunrise-wide.jpg"); }
+  .hero-bg-morning   { background-image: url("/bg/morning-wide.jpg"); }
+  .hero-bg-noon      { background-image: url("/bg/noon-wide.jpg"); }
+  .hero-bg-afternoon { background-image: url("/bg/afternoon-wide.jpg"); }
+  .hero-bg-evening   { background-image: url("/bg/evening-wide.jpg"); }
+  .hero-bg-sunset    { background-image: url("/bg/sunset-wide.jpg"); }
+  .hero-bg-night     { background-image: url("/bg/night-wide.jpg"); }
+  .hero-bg-midnight  { background-image: url("/bg/midnight-wide.jpg"); }
+
   @media (orientation: portrait) {
-    .hero-bg {
-      background-image: url("/bg/scene-tall.png");
-      background-position: center 30%;
-    }
+    .hero-bg-sunrise   { background-image: url("/bg/sunrise-tall.jpg"); }
+    .hero-bg-morning   { background-image: url("/bg/morning-tall.jpg"); }
+    .hero-bg-noon      { background-image: url("/bg/noon-tall.jpg"); }
+    .hero-bg-afternoon { background-image: url("/bg/afternoon-tall.jpg"); }
+    .hero-bg-evening   { background-image: url("/bg/evening-tall.jpg"); }
+    .hero-bg-sunset    { background-image: url("/bg/sunset-tall.jpg"); }
+    .hero-bg-night     { background-image: url("/bg/night-tall.jpg"); }
+    .hero-bg-midnight  { background-image: url("/bg/midnight-tall.jpg"); }
   }
 
   /* Inline SVG feTurbulence grain, tiled, blended over the scene so the
@@ -75,8 +90,6 @@
   }
 }
 
-/* Explicit keyframe so the vinyl's inline `animation: spin ...` resolves
-   regardless of how Tailwind's own internal spin utility is scoped. */
 @keyframes spin {
   from {
     transform: rotate(0deg);
