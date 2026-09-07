@@ -1,22 +1,47 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { songs, formatTime } from "@/lib/songs";
 import Vinyl from "./Vinyl";
 import SeekBar from "./SeekBar";
 import Transport from "./Transport";
 import SleepTimer, { type SleepSelection } from "./SleepTimer";
+import QueuePanel from "./QueuePanel";
 
 type RepeatMode = "off" | "all" | "one";
 type SleepMode = "off" | "duration" | "end-of-song" | "sunrise";
 
-function ShuffleButton({
-  active,
-  onClick,
-}: {
-  active: boolean;
-  onClick: () => void;
-}) {
+const HISTORY_LIMIT = 30;
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** All other song indices, in playlist order or shuffled. */
+function buildQueue(currentIdx: number, shuffleOn: boolean): number[] {
+  const rest: number[] = [];
+  for (let i = 1; i < songs.length; i++) {
+    rest.push((currentIdx + i) % songs.length);
+  }
+  return shuffleOn ? shuffleArray(rest) : rest;
+}
+
+function msUntilNextSunrise(): number {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(5, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime() - now.getTime();
+}
+
+function ShuffleButton({ active, onClick }: { active: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -38,15 +63,8 @@ function ShuffleButton({
   );
 }
 
-function RepeatButton({
-  mode,
-  onClick,
-}: {
-  mode: RepeatMode;
-  onClick: () => void;
-}) {
-  const label =
-    mode === "off" ? "Repeat off" : mode === "all" ? "Repeat all" : "Repeat one";
+function RepeatButton({ mode, onClick }: { mode: RepeatMode; onClick: () => void }) {
+  const label = mode === "off" ? "Repeat off" : mode === "all" ? "Repeat all" : "Repeat one";
   return (
     <button
       type="button"
@@ -71,19 +89,39 @@ function RepeatButton({
   );
 }
 
-function msUntilNextSunrise(): number {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(5, 0, 0, 0);
-  if (next.getTime() <= now.getTime()) {
-    next.setDate(next.getDate() + 1);
-  }
-  return next.getTime() - now.getTime();
+function QueueButton({ open, count, onClick }: { open: boolean; count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Queue"
+      aria-pressed={open}
+      onClick={onClick}
+      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
+        open ? "text-brass-bright" : "text-white/60"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M4 6h11M4 12h11M4 18h6" />
+        <path d="M16 15l3 3 3-3" />
+        <path d="M19 9v9" />
+      </svg>
+      {count > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-brass-bright text-[8px] font-bold leading-none text-ink">
+          {count > 9 ? "9+" : count}
+        </span>
+      )}
+    </button>
+  );
 }
 
 export default function Player() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [index, setIndex] = useState(0);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [queue, setQueue] = useState<number[]>(() => buildQueue(0, false));
+  const [history, setHistory] = useState<number[]>([]);
+  const [queueOpen, setQueueOpen] = useState(false);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [duration, setDuration] = useState(songs[0].duration);
@@ -92,53 +130,60 @@ export default function Player() {
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
 
   const [sleepMode, setSleepMode] = useState<SleepMode>("off");
-  const [sleepDeadline, setSleepDeadline] = useState<number | null>(null); // epoch ms
+  const [sleepDeadline, setSleepDeadline] = useState<number | null>(null);
   const [sleepDisplaySec, setSleepDisplaySec] = useState<number | null>(null);
 
   const retryCountRef = useRef(0);
-  const songRef = useRef(songs[0]);
   const isPlayingRef = useRef(false);
-  const shuffleRef = useRef(false);
   const repeatModeRef = useRef<RepeatMode>("off");
-  const indexRef = useRef(0);
   const sleepModeRef = useRef<SleepMode>("off");
+  const currentSongSrcRef = useRef(songs[0].src);
+  const shuffleRef = useRef(shuffle);
 
-  const song = songs[index];
-  songRef.current = song;
+  const song = songs[currentIndex];
   isPlayingRef.current = isPlaying;
-  shuffleRef.current = shuffle;
   repeatModeRef.current = repeatMode;
-  indexRef.current = index;
   sleepModeRef.current = sleepMode;
+  currentSongSrcRef.current = song.src;
+  shuffleRef.current = shuffle;
 
-  const pickRandomIndex = useCallback((excludeIndex: number) => {
-    if (songs.length <= 1) return excludeIndex;
-    let next = excludeIndex;
-    while (next === excludeIndex) {
-      next = Math.floor(Math.random() * songs.length);
-    }
-    return next;
-  }, []);
+  // Advance to whatever is at the front of the queue, refilling it if
+  // it's run out (unless we've genuinely reached the end with no repeat).
+  const advance = useCallback(() => {
+    setHistory((h) => [currentIndex, ...h].slice(0, HISTORY_LIMIT));
+    setQueue((q) => {
+      if (q.length > 0) {
+        const [nextIdx, ...rest] = q;
+        setCurrentIndex(nextIdx);
+        return rest;
+      }
+      if (repeatModeRef.current === "off" && !shuffleRef.current) {
+        setIsPlaying(false);
+        return q;
+      }
+      const fresh = buildQueue(currentIndex, shuffleRef.current);
+      const [nextIdx, ...rest] = fresh;
+      setCurrentIndex(nextIdx);
+      return rest;
+    });
+  }, [currentIndex]);
 
-  // Load the track whenever the index changes.
+  // Load the track whenever the current song changes.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     setAudioMissing(false);
     setElapsed(0);
-    setDuration(song.duration); // fallback until real metadata arrives
+    setDuration(song.duration);
     audio.src = song.src;
     audio.load();
     retryCountRef.current = 0;
     if (isPlaying) {
-      audio.play().catch(() => {
-        // Autoplay can be blocked, or the file may not exist yet.
-      });
+      audio.play().catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index]);
+  }, [currentIndex]);
 
-  // Keep play/pause state in sync with the <audio> element.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -149,8 +194,8 @@ export default function Player() {
     }
   }, [isPlaying]);
 
-  // Handoff from the entry gate: the tap that dismisses it is a genuine
-  // user gesture, so starting playback here is allowed by autoplay policy.
+  // Handoff from the entry gate: dismissing it is a genuine user gesture,
+  // so starting playback here is allowed by autoplay policy.
   useEffect(() => {
     const onStart = () => setIsPlaying(true);
     window.addEventListener("mehfil-start", onStart);
@@ -169,59 +214,35 @@ export default function Player() {
     };
 
     const onEnded = () => {
-      // Sleep: end of current song — stop right here.
       if (sleepModeRef.current === "end-of-song") {
         setIsPlaying(false);
         setSleepMode("off");
         setSleepDeadline(null);
         return;
       }
-
-      // Repeat one: replay the same track from the top.
       if (repeatModeRef.current === "one") {
         setElapsed(0);
         audio.currentTime = 0;
         audio.play().catch(() => {});
         return;
       }
-
-      const atLastTrack = indexRef.current === songs.length - 1;
-
-      // Repeat off + shuffle off + last track finished: stop.
-      if (repeatModeRef.current === "off" && !shuffleRef.current && atLastTrack) {
-        setIsPlaying(false);
-        return;
-      }
-
-      if (shuffleRef.current) {
-        setIndex((i) => pickRandomIndex(i));
-      } else {
-        setIndex((i) => (i + 1) % songs.length);
-      }
+      advance();
     };
 
     const onError = () => {
       const err = audio.error;
-      // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-      // Only codes 3/4 reliably mean "this file doesn't exist or is invalid".
-      // Codes 1/2 usually mean a network hiccup mid-stream — retry instead
-      // of telling the person to add a file that's already there.
       const isRealMissingFile = err?.code === 3 || err?.code === 4;
-
       if (!isRealMissingFile && retryCountRef.current < 3) {
         retryCountRef.current += 1;
         const resumeAt = audio.currentTime;
         setTimeout(() => {
-          audio.src = songRef.current.src;
+          audio.src = currentSongSrcRef.current;
           audio.load();
           audio.currentTime = resumeAt;
-          if (isPlayingRef.current) {
-            audio.play().catch(() => {});
-          }
+          if (isPlayingRef.current) audio.play().catch(() => {});
         }, 800);
         return;
       }
-
       setAudioMissing(true);
       setIsPlaying(false);
     };
@@ -236,9 +257,8 @@ export default function Player() {
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
     };
-  }, [pickRandomIndex]);
+  }, [advance]);
 
-  // Duration / sunrise countdown ticker.
   useEffect(() => {
     if (sleepDeadline == null) {
       setSleepDisplaySec(null);
@@ -258,20 +278,57 @@ export default function Player() {
     return () => clearInterval(id);
   }, [sleepDeadline]);
 
+  const goNext = useCallback(() => advance(), [advance]);
+
   const goPrev = useCallback(() => {
-    setIndex((i) => (i - 1 + songs.length) % songs.length);
+    setHistory((h) => {
+      if (h.length === 0) {
+        setQueue((q) => [currentIndex, ...q]);
+        setCurrentIndex((i) => (i - 1 + songs.length) % songs.length);
+        return h;
+      }
+      const [last, ...rest] = h;
+      setQueue((q) => [currentIndex, ...q]);
+      setCurrentIndex(last);
+      return rest;
+    });
+  }, [currentIndex]);
+
+  const jumpTo = useCallback(
+    (songId: number) => {
+      const targetIdx = songId - 1;
+      setQueue((q) => {
+        const pos = q.indexOf(targetIdx);
+        if (pos === -1) return q;
+        setHistory((h) => [currentIndex, ...h].slice(0, HISTORY_LIMIT));
+        setCurrentIndex(targetIdx);
+        return q.slice(pos + 1);
+      });
+      setQueueOpen(false);
+    },
+    [currentIndex]
+  );
+
+  const reorderQueue = useCallback((fromPos: number, toPos: number) => {
+    setQueue((q) => {
+      if (toPos < 0 || toPos >= q.length) return q;
+      const next = [...q];
+      const [item] = next.splice(fromPos, 1);
+      next.splice(toPos, 0, item);
+      return next;
+    });
   }, []);
 
-  const goNext = useCallback(() => {
-    if (shuffleRef.current) {
-      setIndex((i) => pickRandomIndex(i));
-    } else {
-      setIndex((i) => (i + 1) % songs.length);
-    }
-  }, [pickRandomIndex]);
-
   const toggle = useCallback(() => setIsPlaying((p) => !p), []);
-  const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
+
+  const toggleShuffle = useCallback(() => {
+    setShuffle((s) => {
+      const next = !s;
+      setQueue(buildQueue(currentIndex, next));
+      return next;
+    });
+  }, [currentIndex]);
+
   const cycleRepeat = useCallback(() => {
     setRepeatMode((m) => (m === "off" ? "all" : m === "all" ? "one" : "off"));
   }, []);
@@ -319,16 +376,26 @@ export default function Player() {
       ? `${Math.floor(sleepDisplaySec / 60)}:${String(sleepDisplaySec % 60).padStart(2, "0")}`
       : null;
 
+  const upNextSongs = useMemo(() => queue.map((i) => songs[i]).slice(0, 50), [queue]);
+  const historySongs = useMemo(() => history.map((i) => songs[i]), [history]);
+
   return (
-    <div className="pointer-events-auto w-full max-w-xl">
+    <div className="pointer-events-auto relative w-full max-w-xl">
       <audio ref={audioRef} preload="metadata" />
+
+      <QueuePanel
+        open={queueOpen}
+        onClose={() => setQueueOpen(false)}
+        upNext={upNextSongs}
+        history={historySongs}
+        onJump={jumpTo}
+        onReorder={reorderQueue}
+      />
 
       {audioMissing && (
         <p className="mb-2 text-center font-sans text-[11px] text-white/50">
           No audio file found for this track yet — drop{" "}
-          <span className="font-mono text-white/70">
-            public/audio/{song.slug}.mp3
-          </span>{" "}
+          <span className="font-mono text-white/70">public/audio/{song.slug}.mp3</span>{" "}
           into the project.
         </p>
       )}
@@ -338,12 +405,8 @@ export default function Player() {
         <Vinyl isPlaying={isPlaying && !audioMissing} size={80} />
 
         <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-[15px] font-semibold text-parchment">
-            {song.title}
-          </p>
-          <p className="truncate font-sans text-[12.5px] text-white/70">
-            {song.artist}
-          </p>
+          <p className="truncate font-display text-[15px] font-semibold text-parchment">{song.title}</p>
+          <p className="truncate font-sans text-[12.5px] text-white/70">{song.artist}</p>
           <div className="mt-1.5 flex items-center gap-2">
             <SeekBar progress={progress} onSeek={seek} />
           </div>
@@ -354,20 +417,12 @@ export default function Player() {
         </div>
 
         <div className="flex flex-col items-end gap-1">
-          <SleepTimer
-            active={sleepMode !== "off"}
-            label={sleepLabel}
-            onSelect={handleSleepSelect}
-          />
+          <SleepTimer active={sleepMode !== "off"} label={sleepLabel} onSelect={handleSleepSelect} />
           <div className="flex items-center gap-0.5">
+            <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
             <ShuffleButton active={shuffle} onClick={toggleShuffle} />
             <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
-            <Transport
-              isPlaying={isPlaying}
-              onPrev={goPrev}
-              onToggle={toggle}
-              onNext={goNext}
-            />
+            <Transport isPlaying={isPlaying} onPrev={goPrev} onToggle={toggle} onNext={goNext} />
           </div>
         </div>
       </div>
@@ -377,12 +432,8 @@ export default function Player() {
         <Vinyl isPlaying={isPlaying && !audioMissing} size={92} />
 
         <div className="w-full min-w-0 text-center">
-          <p className="truncate font-display text-[16px] font-semibold text-parchment">
-            {song.title}
-          </p>
-          <p className="truncate font-sans text-[12.5px] text-white/70">
-            {song.artist}
-          </p>
+          <p className="truncate font-display text-[16px] font-semibold text-parchment">{song.title}</p>
+          <p className="truncate font-sans text-[12.5px] text-white/70">{song.artist}</p>
         </div>
 
         <div className="w-full">
@@ -394,22 +445,14 @@ export default function Player() {
         </div>
 
         <div className="flex items-center gap-1">
+          <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
           <ShuffleButton active={shuffle} onClick={toggleShuffle} />
           <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
         </div>
 
         <div className="flex items-center gap-3">
-          <SleepTimer
-            active={sleepMode !== "off"}
-            label={sleepLabel}
-            onSelect={handleSleepSelect}
-          />
-          <Transport
-            isPlaying={isPlaying}
-            onPrev={goPrev}
-            onToggle={toggle}
-            onNext={goNext}
-          />
+          <SleepTimer active={sleepMode !== "off"} label={sleepLabel} onSelect={handleSleepSelect} />
+          <Transport isPlaying={isPlaying} onPrev={goPrev} onToggle={toggle} onNext={goNext} />
         </div>
       </div>
     </div>
