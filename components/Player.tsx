@@ -2,16 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { songs, formatTime } from "@/lib/songs";
+import { readProgress, readSharedIntent, saveProgress } from "@/lib/playerState";
 import Vinyl from "./Vinyl";
 import SeekBar from "./SeekBar";
 import Transport from "./Transport";
 import SleepTimer, { type SleepSelection } from "./SleepTimer";
 import QueuePanel from "./QueuePanel";
+import SendSong from "./SendSong";
 
 type RepeatMode = "off" | "all" | "one";
 type SleepMode = "off" | "duration" | "end-of-song" | "sunrise";
 
 const HISTORY_LIMIT = 30;
+const PROGRESS_SAVE_INTERVAL_MS = 5000;
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -22,7 +25,6 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-/** All other song indices, in playlist order or shuffled. */
 function buildQueue(currentIdx: number, shuffleOn: boolean): number[] {
   const rest: number[] = [];
   for (let i = 1; i < songs.length; i++) {
@@ -39,6 +41,23 @@ function msUntilNextSunrise(): number {
     next.setDate(next.getDate() + 1);
   }
   return next.getTime() - now.getTime();
+}
+
+/** Shared links take priority; otherwise resume saved progress; otherwise start fresh. */
+function getInitialPlaybackState(): { index: number; elapsedSec: number } {
+  const shared = readSharedIntent();
+  if (shared) {
+    const idx = shared.songId - 1;
+    if (idx >= 0 && idx < songs.length) return { index: idx, elapsedSec: 0 };
+  }
+  const progress = readProgress();
+  if (progress) {
+    const idx = progress.songId - 1;
+    if (idx >= 0 && idx < songs.length) {
+      return { index: idx, elapsedSec: progress.elapsedSec };
+    }
+  }
+  return { index: 0, elapsedSec: 0 };
 }
 
 function ShuffleButton({ active, onClick }: { active: boolean; onClick: () => void }) {
@@ -116,15 +135,16 @@ function QueueButton({ open, count, onClick }: { open: boolean; count: number; o
 
 export default function Player() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const initialRef = useRef(getInitialPlaybackState());
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [queue, setQueue] = useState<number[]>(() => buildQueue(0, false));
+  const [currentIndex, setCurrentIndex] = useState(initialRef.current.index);
+  const [queue, setQueue] = useState<number[]>(() => buildQueue(initialRef.current.index, false));
   const [history, setHistory] = useState<number[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [duration, setDuration] = useState(songs[0].duration);
+  const [duration, setDuration] = useState(songs[initialRef.current.index].duration);
   const [audioMissing, setAudioMissing] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
@@ -137,8 +157,12 @@ export default function Player() {
   const isPlayingRef = useRef(false);
   const repeatModeRef = useRef<RepeatMode>("off");
   const sleepModeRef = useRef<SleepMode>("off");
-  const currentSongSrcRef = useRef(songs[0].src);
+  const currentSongSrcRef = useRef(songs[initialRef.current.index].src);
   const shuffleRef = useRef(shuffle);
+  const pendingSeekRef = useRef(initialRef.current.elapsedSec);
+  const isFirstLoadRef = useRef(true);
+  const elapsedRef = useRef(0);
+  const currentIndexRef = useRef(currentIndex);
 
   const song = songs[currentIndex];
   isPlayingRef.current = isPlaying;
@@ -146,9 +170,9 @@ export default function Player() {
   sleepModeRef.current = sleepMode;
   currentSongSrcRef.current = song.src;
   shuffleRef.current = shuffle;
+  elapsedRef.current = elapsed;
+  currentIndexRef.current = currentIndex;
 
-  // Advance to whatever is at the front of the queue, refilling it if
-  // it's run out (unless we've genuinely reached the end with no repeat).
   const advance = useCallback(() => {
     setHistory((h) => [currentIndex, ...h].slice(0, HISTORY_LIMIT));
     setQueue((q) => {
@@ -202,6 +226,20 @@ export default function Player() {
     return () => window.removeEventListener("mehfil-start", onStart);
   }, []);
 
+  // Persist "continue listening" progress periodically and on pause/unload.
+  useEffect(() => {
+    const save = () => saveProgress(currentIndexRef.current + 1, elapsedRef.current);
+    const id = setInterval(() => {
+      if (isPlayingRef.current) save();
+    }, PROGRESS_SAVE_INTERVAL_MS);
+    window.addEventListener("beforeunload", save);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("beforeunload", save);
+      save();
+    };
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -210,6 +248,16 @@ export default function Player() {
     const onLoadedMetadata = () => {
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
+      }
+      // Resume from saved progress exactly once, on the very first track
+      // this component loads (a shared link or a mid-song continue).
+      if (isFirstLoadRef.current) {
+        isFirstLoadRef.current = false;
+        const seekTo = pendingSeekRef.current;
+        if (seekTo > 0 && Number.isFinite(audio.duration) && seekTo < audio.duration) {
+          audio.currentTime = seekTo;
+          setElapsed(seekTo);
+        }
       }
     };
 
@@ -419,6 +467,7 @@ export default function Player() {
         <div className="flex flex-col items-end gap-1">
           <SleepTimer active={sleepMode !== "off"} label={sleepLabel} onSelect={handleSleepSelect} />
           <div className="flex items-center gap-0.5">
+            <SendSong songId={song.id} songTitle={song.title} />
             <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
             <ShuffleButton active={shuffle} onClick={toggleShuffle} />
             <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
@@ -445,6 +494,7 @@ export default function Player() {
         </div>
 
         <div className="flex items-center gap-1">
+          <SendSong songId={song.id} songTitle={song.title} />
           <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
           <ShuffleButton active={shuffle} onClick={toggleShuffle} />
           <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
