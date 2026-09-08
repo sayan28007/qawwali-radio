@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { songs, formatTime } from "@/lib/songs";
 import { readProgress, readSharedIntent, saveProgress } from "@/lib/playerState";
+import { readLikedIds, toggleLikedId } from "@/lib/likedSongs";
 import Vinyl from "./Vinyl";
 import SeekBar from "./SeekBar";
 import Transport from "./Transport";
 import SleepTimer, { type SleepSelection } from "./SleepTimer";
 import QueuePanel from "./QueuePanel";
 import SendSong from "./SendSong";
+import LikeButton from "./LikeButton";
 
 type RepeatMode = "off" | "all" | "one";
 type SleepMode = "off" | "duration" | "end-of-song" | "sunrise";
@@ -152,6 +154,15 @@ export default function Player() {
   const [sleepMode, setSleepMode] = useState<SleepMode>("off");
   const [sleepDeadline, setSleepDeadline] = useState<number | null>(null);
   const [sleepDisplaySec, setSleepDisplaySec] = useState<number | null>(null);
+
+  const [likedIds, setLikedIds] = useState<number[]>([]);
+  useEffect(() => {
+    setLikedIds(readLikedIds());
+  }, []);
+  const likedIdSet = useMemo(() => new Set(likedIds), [likedIds]);
+  const toggleLike = useCallback((songId: number) => {
+    setLikedIds((prev) => toggleLikedId(prev, songId));
+  }, []);
 
   const retryCountRef = useRef(0);
   const isPlayingRef = useRef(false);
@@ -426,6 +437,14 @@ export default function Player() {
 
   const upNextSongs = useMemo(() => queue.map((i) => songs[i]).slice(0, 50), [queue]);
   const historySongs = useMemo(() => history.map((i) => songs[i]), [history]);
+  const allSongsSorted = useMemo(
+    () => [...songs].sort((a, b) => a.title.localeCompare(b.title)),
+    []
+  );
+  const likedSongs = useMemo(
+    () => songs.filter((s) => likedIdSet.has(s.id)),
+    [likedIdSet]
+  );
 
   return (
     <div className="pointer-events-auto relative w-full max-w-xl">
@@ -436,8 +455,12 @@ export default function Player() {
         onClose={() => setQueueOpen(false)}
         upNext={upNextSongs}
         history={historySongs}
+        allSongs={allSongsSorted}
+        liked={likedSongs}
+        likedIds={likedIdSet}
         onJump={jumpTo}
         onReorder={reorderQueue}
+        onToggleLike={toggleLike}
       />
 
       {audioMissing && (
@@ -467,6 +490,7 @@ export default function Player() {
         <div className="flex flex-col items-end gap-1">
           <SleepTimer active={sleepMode !== "off"} label={sleepLabel} onSelect={handleSleepSelect} />
           <div className="flex items-center gap-0.5">
+            <LikeButton liked={likedIdSet.has(song.id)} onClick={() => toggleLike(song.id)} />
             <SendSong songId={song.id} songTitle={song.title} />
             <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
             <ShuffleButton active={shuffle} onClick={toggleShuffle} />
@@ -494,6 +518,7 @@ export default function Player() {
         </div>
 
         <div className="flex items-center gap-1">
+          <LikeButton liked={likedIdSet.has(song.id)} onClick={() => toggleLike(song.id)} />
           <SendSong songId={song.id} songTitle={song.title} />
           <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
           <ShuffleButton active={shuffle} onClick={toggleShuffle} />
