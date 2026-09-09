@@ -499,6 +499,16 @@ export default function Player() {
   );
 
   const progress = duration > 0 ? elapsed / duration : 0;
+  const remaining = Math.max(0, duration - elapsed);
+
+  const nextLabel = (() => {
+    if (sleepMode === "end-of-song") return `Ending in ${formatTime(remaining)}`;
+    if (repeatMode === "one") return `Repeats in ${formatTime(remaining)}`;
+    if (repeatMode === "off" && !shuffle && queue.length === 0) {
+      return `Mehfil ends in ${formatTime(remaining)}`;
+    }
+    return `Next in ${formatTime(remaining)}`;
+  })();
 
   const sleepLabel =
     sleepMode === "end-of-song"
@@ -566,6 +576,7 @@ export default function Player() {
             <span>{formatTime(elapsed)}</span>
             <span>{formatTime(duration)}</span>
           </div>
+          <p className="mt-0.5 text-right font-sans text-[10px] text-white/40">{nextLabel}</p>
         </div>
 
         <div className="flex flex-col items-end gap-1">
@@ -606,6 +617,7 @@ export default function Player() {
             <span>{formatTime(elapsed)}</span>
             <span>{formatTime(duration)}</span>
           </div>
+          <p className="mt-0.5 text-center font-sans text-[10px] text-white/40">{nextLabel}</p>
         </div>
 
         <div className="flex items-center gap-1">
