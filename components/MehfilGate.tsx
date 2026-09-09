@@ -66,7 +66,7 @@ export default function MehfilGate() {
     setLeaving(true);
     window.dispatchEvent(new Event("mehfil-start"));
     try {
-      sessionStorage.setItem("mehfil-entered", "1");
+      sessionStorage.setItem("mehfil-entered", String(Date.now()));
     } catch {
       // ignore
     }

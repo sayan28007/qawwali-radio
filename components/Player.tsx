@@ -155,6 +155,18 @@ function StatsButton({ open, onClick }: { open: boolean; onClick: () => void }) 
   );
 }
 
+function OnAirBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 font-sans text-[9.5px] font-semibold uppercase tracking-wide text-white/45">
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brass-bright opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brass-bright" />
+      </span>
+      On Air
+    </span>
+  );
+}
+
 export default function Player() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const initialRef = useRef(getInitialPlaybackState());
@@ -187,6 +199,9 @@ export default function Player() {
   const [statsOpen, setStatsOpen] = useState(false);
   const sessionStartRef = useRef<number | null>(null);
   const lastPausedAtRef = useRef<number>(Date.now());
+
+  const [showNowPlaying, setShowNowPlaying] = useState(false);
+  const isInitialMountRef = useRef(true);
 
   const retryCountRef = useRef(0);
   const isPlayingRef = useRef(false);
@@ -383,6 +398,17 @@ export default function Player() {
     return () => clearInterval(id);
   }, [sleepDeadline]);
 
+  // Brief "Now Playing" flash whenever the track changes (not on first mount).
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+    setShowNowPlaying(true);
+    const id = setTimeout(() => setShowNowPlaying(false), 2500);
+    return () => clearTimeout(id);
+  }, [currentIndex]);
+
   const goNext = useCallback(() => advance(), [advance]);
 
   const goPrev = useCallback(() => {
@@ -524,6 +550,13 @@ export default function Player() {
         <Vinyl isPlaying={isPlaying && !audioMissing} size={80} />
 
         <div className="min-w-0 flex-1">
+          {showNowPlaying ? (
+            <span className="font-sans text-[9.5px] font-semibold uppercase tracking-wide text-brass-bright">
+              ▶ Now Playing
+            </span>
+          ) : (
+            <OnAirBadge />
+          )}
           <p className="truncate font-display text-[15px] font-semibold text-parchment">{song.title}</p>
           <p className="truncate font-sans text-[12.5px] text-white/70">{song.artist}</p>
           <div className="mt-1.5 flex items-center gap-2">
@@ -554,6 +587,15 @@ export default function Player() {
         <Vinyl isPlaying={isPlaying && !audioMissing} size={92} />
 
         <div className="w-full min-w-0 text-center">
+          <div className="mb-0.5 flex justify-center">
+            {showNowPlaying ? (
+              <span className="font-sans text-[9.5px] font-semibold uppercase tracking-wide text-brass-bright">
+                ▶ Now Playing
+              </span>
+            ) : (
+              <OnAirBadge />
+            )}
+          </div>
           <p className="truncate font-display text-[16px] font-semibold text-parchment">{song.title}</p>
           <p className="truncate font-sans text-[12.5px] text-white/70">{song.artist}</p>
         </div>
@@ -580,6 +622,26 @@ export default function Player() {
           <Transport isPlaying={isPlaying} onPrev={goPrev} onToggle={toggle} onNext={goNext} />
         </div>
       </div>
+
+      {historySongs.length > 0 && (
+        <div className="mt-2 flex items-center justify-center gap-1.5 overflow-hidden px-2 font-sans text-[10.5px] text-white/40">
+          <span className="shrink-0 text-white/30">Earlier in this Mehfil:</span>
+          <span className="truncate">
+            {historySongs.slice(0, 5).map((s, i) => (
+              <span key={s.id}>
+                {i > 0 && " · "}
+                <button
+                  type="button"
+                  onClick={() => jumpTo(s.id)}
+                  className="hover:text-brass-bright hover:underline"
+                >
+                  {s.title}
+                </button>
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
