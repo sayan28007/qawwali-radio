@@ -3,7 +3,7 @@
 A single-page nostalgia player built with Next.js App Router, TypeScript,
 and Tailwind v4 (CSS-first config, no `tailwind.config.*`).
 
-**Live site:** https://qawwali-radio.vercel.app/
+**Live site:** https://qawwali-radio-zeta.vercel.app/
 
 ## Run locally
 
