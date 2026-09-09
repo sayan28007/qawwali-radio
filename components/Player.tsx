@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { songs, formatTime } from "@/lib/songs";
 import { readProgress, readSharedIntent, saveProgress } from "@/lib/playerState";
 import { readLikedIds, toggleLikedId } from "@/lib/likedSongs";
+import { readStats, writeStats, recordListeningTick, recordPlayStart, recordSession, SESSION_GAP_MS } from "@/lib/stats";
 import Vinyl from "./Vinyl";
 import SeekBar from "./SeekBar";
 import Transport from "./Transport";
@@ -11,6 +12,7 @@ import SleepTimer, { type SleepSelection } from "./SleepTimer";
 import QueuePanel from "./QueuePanel";
 import SendSong from "./SendSong";
 import LikeButton from "./LikeButton";
+import StatsCard from "./StatsCard";
 
 type RepeatMode = "off" | "all" | "one";
 type SleepMode = "off" | "duration" | "end-of-song" | "sunrise";
@@ -135,6 +137,24 @@ function QueueButton({ open, count, onClick }: { open: boolean; count: number; o
   );
 }
 
+function StatsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Your Mehfil stats"
+      aria-pressed={open}
+      onClick={onClick}
+      className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
+        open ? "text-brass-bright" : "text-white/60"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 20V10M12 20V4M20 20v-7" />
+      </svg>
+    </button>
+  );
+}
+
 export default function Player() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const initialRef = useRef(getInitialPlaybackState());
@@ -163,6 +183,10 @@ export default function Player() {
   const toggleLike = useCallback((songId: number) => {
     setLikedIds((prev) => toggleLikedId(prev, songId));
   }, []);
+
+  const [statsOpen, setStatsOpen] = useState(false);
+  const sessionStartRef = useRef<number | null>(null);
+  const lastPausedAtRef = useRef<number>(Date.now());
 
   const retryCountRef = useRef(0);
   const isPlayingRef = useRef(false);
@@ -213,6 +237,9 @@ export default function Player() {
     audio.src = song.src;
     audio.load();
     retryCountRef.current = 0;
+    let s = readStats();
+    s = recordPlayStart(song.id, s);
+    writeStats(s);
     if (isPlaying) {
       audio.play().catch(() => {});
     }
@@ -223,8 +250,13 @@ export default function Player() {
     const audio = audioRef.current;
     if (!audio) return;
     if (isPlaying) {
+      const now = Date.now();
+      if (sessionStartRef.current == null || now - lastPausedAtRef.current > SESSION_GAP_MS) {
+        sessionStartRef.current = now;
+      }
       audio.play().catch(() => setIsPlaying(false));
     } else {
+      lastPausedAtRef.current = Date.now();
       audio.pause();
     }
   }, [isPlaying]);
@@ -237,11 +269,22 @@ export default function Player() {
     return () => window.removeEventListener("mehfil-start", onStart);
   }, []);
 
-  // Persist "continue listening" progress periodically and on pause/unload.
+  // Persist "continue listening" progress and listening stats periodically.
   useEffect(() => {
     const save = () => saveProgress(currentIndexRef.current + 1, elapsedRef.current);
+    const tickStats = () => {
+      if (!isPlayingRef.current) return;
+      let s = readStats();
+      s = recordListeningTick(currentIndexRef.current + 1, PROGRESS_SAVE_INTERVAL_MS / 1000, s);
+      if (sessionStartRef.current != null) {
+        const sessionDur = (Date.now() - sessionStartRef.current) / 1000;
+        s = recordSession(sessionDur, s);
+      }
+      writeStats(s);
+    };
     const id = setInterval(() => {
       if (isPlayingRef.current) save();
+      tickStats();
     }, PROGRESS_SAVE_INTERVAL_MS);
     window.addEventListener("beforeunload", save);
     return () => {
@@ -283,6 +326,9 @@ export default function Player() {
         setElapsed(0);
         audio.currentTime = 0;
         audio.play().catch(() => {});
+        let s = readStats();
+        s = recordPlayStart(currentIndexRef.current + 1, s);
+        writeStats(s);
         return;
       }
       advance();
@@ -463,6 +509,8 @@ export default function Player() {
         onToggleLike={toggleLike}
       />
 
+      {statsOpen && <StatsCard onClose={() => setStatsOpen(false)} />}
+
       {audioMissing && (
         <p className="mb-2 text-center font-sans text-[11px] text-white/50">
           No audio file found for this track yet — drop{" "}
@@ -492,6 +540,7 @@ export default function Player() {
           <div className="flex items-center gap-0.5">
             <LikeButton liked={likedIdSet.has(song.id)} onClick={() => toggleLike(song.id)} />
             <SendSong songId={song.id} songTitle={song.title} />
+            <StatsButton open={statsOpen} onClick={() => setStatsOpen((o) => !o)} />
             <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
             <ShuffleButton active={shuffle} onClick={toggleShuffle} />
             <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
@@ -520,6 +569,7 @@ export default function Player() {
         <div className="flex items-center gap-1">
           <LikeButton liked={likedIdSet.has(song.id)} onClick={() => toggleLike(song.id)} />
           <SendSong songId={song.id} songTitle={song.title} />
+          <StatsButton open={statsOpen} onClick={() => setStatsOpen((o) => !o)} />
           <QueueButton open={queueOpen} count={upNextSongs.length} onClick={() => setQueueOpen((o) => !o)} />
           <ShuffleButton active={shuffle} onClick={toggleShuffle} />
           <RepeatButton mode={repeatMode} onClick={cycleRepeat} />
