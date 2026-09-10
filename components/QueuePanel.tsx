@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Song } from "@/lib/songs";
+import Transition from "./Transition";
 
 type Tab = "next" | "history" | "all" | "liked";
 
@@ -59,8 +60,6 @@ export default function QueuePanel({
 }) {
   const [tab, setTab] = useState<Tab>("next");
 
-  if (!open) return null;
-
   const list =
     tab === "next" ? upNext : tab === "history" ? history : tab === "all" ? allSongs : liked;
 
@@ -72,7 +71,10 @@ export default function QueuePanel({
   ];
 
   return (
-    <div className="glass absolute bottom-full left-0 right-0 z-40 mb-2 flex max-h-96 flex-col overflow-hidden rounded-3xl">
+    <Transition
+      show={open}
+      className="glass absolute bottom-full left-0 right-0 z-40 mb-2 flex max-h-96 flex-col overflow-hidden rounded-3xl origin-bottom"
+    >
       <div className="flex items-center justify-between border-b border-white/10 px-3 pt-3">
         <div className="flex gap-3 overflow-x-auto">
           {tabs.map((t) => (
@@ -154,6 +156,6 @@ export default function QueuePanel({
           </div>
         ))}
       </div>
-    </div>
+    </Transition>
   );
 }

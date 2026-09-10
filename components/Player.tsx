@@ -452,6 +452,42 @@ export default function Player() {
 
   const toggle = useCallback(() => setIsPlaying((p) => !p), []);
 
+  // Media Session: wires the browser/OS's own play/pause/next/prev controls
+  // (lock screen, notification shade, hardware media keys) to this player,
+  // so playback stays controllable even when this tab isn't in focus.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.setActionHandler("play", () => setIsPlaying(true));
+    navigator.mediaSession.setActionHandler("pause", () => setIsPlaying(false));
+    navigator.mediaSession.setActionHandler("previoustrack", () => goPrev());
+    navigator.mediaSession.setActionHandler("nexttrack", () => goNext());
+    return () => {
+      navigator.mediaSession.setActionHandler("play", null);
+      navigator.mediaSession.setActionHandler("pause", null);
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+      navigator.mediaSession.setActionHandler("nexttrack", null);
+    };
+  }, [goPrev, goNext]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.title,
+      artist: song.artist,
+      album: "Mehfil — Late Night Qawwali",
+      artwork: [96, 128, 192, 256, 384, 512].map((size) => ({
+        src: "/cover/station.jpg",
+        sizes: `${size}x${size}`,
+        type: "image/jpeg",
+      })),
+    });
+  }, [song]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }, [isPlaying]);
+
   const toggleShuffle = useCallback(() => {
     setShuffle((s) => {
       const next = !s;
@@ -545,7 +581,7 @@ export default function Player() {
         onToggleLike={toggleLike}
       />
 
-      {statsOpen && <StatsCard onClose={() => setStatsOpen(false)} />}
+      <StatsCard open={statsOpen} onClose={() => setStatsOpen(false)} />
 
       {audioMissing && (
         <p className="mb-2 text-center font-sans text-[11px] text-white/50">

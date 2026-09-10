@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Transition from "./Transition";
 
 export type SleepSelection =
   | { type: "off" }
@@ -58,9 +59,12 @@ export default function SleepTimer({
         {label}
       </button>
 
-      {open && (
-        <div className="glass absolute bottom-full right-0 z-40 mb-2 w-44 rounded-2xl p-1.5">
-          <p className="px-2 pb-1 pt-0.5 font-sans text-[10px] uppercase tracking-wide text-white/45">
+      <Transition
+        show={open}
+        duration={160}
+        className="glass absolute bottom-full right-0 z-40 mb-2 w-44 rounded-2xl p-1.5 origin-bottom-right"
+      >
+        <p className="px-2 pb-1 pt-0.5 font-sans text-[10px] uppercase tracking-wide text-white/45">
             Sleep timer
           </p>
 
@@ -104,8 +108,7 @@ export default function SleepTimer({
               </button>
             </>
           )}
-        </div>
-      )}
+      </Transition>
     </div>
   );
 }

@@ -8,8 +8,9 @@ import {
   readStats,
   topSongs,
 } from "@/lib/stats";
+import Transition from "./Transition";
 
-export default function StatsCard({ onClose }: { onClose: () => void }) {
+export default function StatsCard({ open, onClose }: { open: boolean; onClose: () => void }) {
   const stats = readStats();
   const top = topSongs(stats, 10);
   const replayed = mostReplayedSong(stats);
@@ -18,13 +19,13 @@ export default function StatsCard({ onClose }: { onClose: () => void }) {
   const maxMonthSec = Math.max(1, ...months.map((m) => m.seconds));
 
   return (
-    <div
+    <Transition
+      show={open}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-      onClick={onClose}
     >
+      <div onClick={onClose} className="absolute inset-0" aria-hidden />
       <div
-        className="glass max-h-[85vh] w-full max-w-md overflow-y-auto rounded-[28px] p-5"
-        onClick={(e) => e.stopPropagation()}
+        className="glass relative max-h-[85vh] w-full max-w-md overflow-y-auto rounded-[28px] p-5"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-display text-[19px] font-semibold italic text-parchment">
@@ -142,6 +143,6 @@ export default function StatsCard({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </Transition>
   );
 }

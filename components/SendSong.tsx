@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SHARE_MESSAGES, buildShareUrl } from "@/lib/playerState";
+import Transition from "./Transition";
 
 export default function SendSong({
   songId,
@@ -68,9 +69,12 @@ export default function SendSong({
         </svg>
       </button>
 
-      {open && (
-        <div className="glass absolute bottom-full right-0 z-40 mb-2 w-64 rounded-2xl p-3">
-          <p className="px-1 pb-2 font-sans text-[12px] font-semibold text-parchment">
+      <Transition
+        show={open}
+        duration={160}
+        className="glass absolute bottom-full right-0 z-40 mb-2 w-64 rounded-2xl p-3 origin-bottom-right"
+      >
+        <p className="px-1 pb-2 font-sans text-[12px] font-semibold text-parchment">
             Send this Mehfil to someone ❤️
           </p>
           <p className="px-1 pb-2 font-sans text-[11px] text-white/50">
@@ -88,8 +92,7 @@ export default function SendSong({
               </button>
             ))}
           </div>
-        </div>
-      )}
+      </Transition>
     </div>
   );
 }
