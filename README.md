@@ -5,6 +5,63 @@ and Tailwind v4 (CSS-first config, no `tailwind.config.*`).
 
 **Live site:** https://qawwali-radio.vercel.app/
 
+## Architecture
+
+```mermaid
+graph TD
+    Listener((Listener)) -->|opens| Home[Home Scene<br/>page.tsx]
+
+    Home -->|overlays| Gate[Entry Gate<br/>MehfilGate.tsx]
+    Home -->|renders| Listeners[Listener Count<br/>ListenerCount.tsx]
+    Home -->|renders| Social[Social Links<br/>SocialLinks.tsx]
+    Home -->|renders| TimeBg[Time Background<br/>TimeOfDayBackground.tsx]
+    Home -->|renders| SessionClock[Session Clock<br/>Clock.tsx]
+    Home -->|renders| AudioPlayer[Audio Player<br/>Player.tsx]
+    Gate -->|unlocks| AudioPlayer
+
+    subgraph SP["Scene Presentation"]
+        Listeners
+        Social
+        TimeBg
+        SessionClock
+    end
+
+    subgraph PD["Playback Domain"]
+        AudioFiles[(Audio Files)]
+        AudioPlayer -->|controls audio| BrowserAudio[Browser Audio]
+        AudioPlayer -->|handles controls| Transport[Playback Transport<br/>Transport.tsx]
+        AudioPlayer -->|reads tracks| Catalog[Song Catalog<br/>songs.ts]
+        AudioPlayer -->|dispatches queue| Queue[Queue Panel<br/>QueuePanel.tsx]
+        AudioPlayer -->|updates controls| MediaSession[Media Session]
+        AudioFiles -->|serves media| BrowserAudio
+    end
+
+    subgraph PF["Personal Features"]
+        AudioPlayer -->|arms timer| SleepTimer[Sleep Timer<br/>SleepTimer.tsx]
+        AudioPlayer -->|toggles likes| LikedSongs[Liked Songs<br/>likedSongs.ts]
+        AudioPlayer -->|records listening| Stats[Listening Stats<br/>stats.ts]
+        AudioPlayer -->|opens stats| StatsCard[Stats Card<br/>StatsCard.tsx]
+        AudioPlayer -->|saves position| ProgressState[Progress State<br/>playerState.ts]
+        AudioPlayer -->|opens sharing| SendSong[Song Sharing<br/>SendSong.tsx]
+
+        StatsCard -->|reads summaries| Stats
+        SendSong -->|builds links| ProgressState
+
+        Storage[(Browser Storage)]
+        LikedSongs -->|reads/writes| Storage
+        Stats -->|reads/writes| Storage
+        ProgressState -->|reads/writes| Storage
+    end
+
+    Home -->|updates scene| TimeBg
+    ProgressState -->|resumes state| AudioPlayer
+```
+
+Everything on the right (playback, personal features) lives entirely in
+the browser — the queue, likes, stats, and saved position are all
+`localStorage`, no server or database involved. The only "backend" is
+Vercel serving the static files and the audio.
+
 ## Run locally
 
 ```bash
