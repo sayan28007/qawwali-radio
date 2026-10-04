@@ -61,7 +61,7 @@ function getInitialPlaybackState(): { index: number; elapsedSec: number } {
       return { index: idx, elapsedSec: progress.elapsedSec };
     }
   }
-  return { index: 0, elapsedSec: 0 };
+  return { index: Math.floor(Math.random() * songs.length), elapsedSec: 0 };
 }
 
 function ShuffleButton({ active, onClick }: { active: boolean; onClick: () => void }) {
