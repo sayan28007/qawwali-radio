@@ -66,6 +66,7 @@ const TITLES: string[] = [
   "Biba Sada Dil Mor De",
   "Mera Piya Ghar Aaya",
   "Mast Qalander",
+  "Chaap Tilak Cheen Li",
 
 ];
 
